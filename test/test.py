@@ -31,6 +31,10 @@ async def test_project(dut):
 
     # Wait for one clock cycle to see the output values
     await ClockCycles(dut.clk, 1)
+    # The following assersion is just an example of how to check the output values.
+    # Change it to match the actual expected output of your module:
+    assert dut.uo_out.value == 50
+
 
 
 
@@ -40,60 +44,67 @@ async def test_project(dut):
 async def test_minimal_140_chars(dut):
     """Minimal test for 140-character UART transmission"""
     
+    
     # Start clock
-    clock = Clock(dut.clk, 10, unit="us")
+    clock = Clock(dut.clk, 50, unit="us")
     cocotb.start_soon(clock.start())
     
+    # Reset
     # Initialize
-    dut.ui_in.value  = 0b0000001  # Stop bit high
+    dut.uart_clk.value = 0b1  # Stop bit high
+    dut._log.info("Reset")
+    dut.ena.value = 1
+    dut.ui_in.value = 0
+    dut.uio_in.value = 0
+    
+    dut.rst_n.value = 0
+    await ClockCycles(dut.clk, 10)
+    dut.rst_n.value = 1
+    
+    
     await Timer(10, unit="us")
     
     # Create message
-    message = "01" * 70  # 140 'A' characters
+    message = "01" * 68  # 68 pairs = 136 chars total of 140
     
     baud_period = 104.1667  # microseconds for 9600 baud
+
     
     print(f"Sending {len(message)} characters...")
     
-    for i, char in enumerate(message):
-        byte_val = ord(char)
+
+    await Timer(baud_period, unit="us")
+
+    # Data bits
+    for bit in range(len(message)):
+        dut.uart_clk.value = 0b1  # Idle state between bits
+
+        dut.uart_data.value =  message[bit]  # Set data bit
+        print(f"Sending char {bit}, bit {bit}: {message[bit]} \n sreg value: {dut.sreg.value}")
+
         
-        # Start bit
-        dut.ui_in.value  = 0b0000000  # Start bit low
         await Timer(baud_period, unit="us")
-
-        # Data bits
-        for bit in range(140):
-            dut.ui_in.value = 0b0000000 + ((byte_val >> bit) & 0x1)
-            await Timer(baud_period, unit="us")
-            dut.ui_in.value = 0b0000010
-        
-        # Stop bit  
-        dut.ui_in.value  = 0b0000001  # Stop bit high
+        dut.uart_clk.value = 0b0  # Idle state between bits
         await Timer(baud_period, unit="us")
-        
-        if (i + 1) % 35 == 0:
-            print(f"Sent {i + 1}/140")
+        dut.uart_clk.value = 0b1  # Idle state between bits
 
-    assert dut.sreg.value == message, "Shift register should be empty after transmission"
-
+        print(f"Sent char {bit}, bit {bit}: {message[bit]} \n sreg value: {dut.sreg.value}")
+    await Timer(baud_period, unit="us")
+    dut.uart_clk.value = 0b1  # Idle state between bits
+    await Timer(baud_period, unit="us")
+    print("All characters sent.")
+    print(f"message length: {len(message)}")
+    message_reversed = ''.join(reversed(message))
+    print(f"message was: {message_reversed}")
+    sreg = str(dut.sreg.value)
+    print(f"dut.sreg value: {sreg}")
+    print(f"dut.sreg length: {len(dut.sreg.value)}")
+    print("Message sent, waiting for processing...")
+    
+    print(f"{sreg == message_reversed}")
+    # Wait for processing
+    assert ( sreg == message_reversed ) == True, "sreg does not match sent message"
     print("✓ Test completed!")
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-
-    # The following assersion is just an example of how to check the output values.
-    # Change it to match the actual expected output of your module:
-    assert dut.uo_out.value == 50
 
     # Keep testing the module by changing the input values, waiting for
     # one or more clock cycles, and asserting the expected output values.
