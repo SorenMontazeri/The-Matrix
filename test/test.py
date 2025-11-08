@@ -45,11 +45,11 @@ async def test_minimal_140_chars(dut):
     cocotb.start_soon(clock.start())
     
     # Initialize
-    dut.tx_data.value = 1
+    dut.ui_in.value  = 0b0000001  # Stop bit high
     await Timer(10, unit="us")
     
     # Create message
-    message = "A" * 140  # 140 'A' characters
+    message = "010111" * 140  # 140 'A' characters
     
     baud_period = 104.1667  # microseconds for 9600 baud
     
@@ -59,22 +59,23 @@ async def test_minimal_140_chars(dut):
         byte_val = ord(char)
         
         # Start bit
-        dut.tx_data.value = 0
+        dut.ui_in.value  = 0b0000000  # Start bit low
         await Timer(baud_period, unit="us")
 
         # Data bits
-        for bit in range(8):
-            dut.tx_data.value = (byte_val >> bit) & 1
+        for bit in range(140):
+            dut.ui_in.value = 0b0000000 + ((byte_val >> bit) & 0x1)
             await Timer(baud_period, unit="us")
+            dut.ui_in.value = 0b0000010
         
         # Stop bit  
-        dut.tx_data.value = 1
+        dut.ui_in.value  = 0b0000001  # Stop bit high
         await Timer(baud_period, unit="us")
         
         if (i + 1) % 35 == 0:
             print(f"Sent {i + 1}/140")
 
-    assert dut.sreg.value == 0, "Shift register should be empty after transmission"
+    assert dut.sreg.value == message, "Shift register should be empty after transmission"
 
     print("✓ Test completed!")
     
