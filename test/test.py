@@ -49,7 +49,7 @@ async def test_minimal_140_chars(dut):
     await Timer(10, unit="us")
     
     # Create message
-    message = "010111" * 140  # 140 'A' characters
+    message = "01" * 70  # 140 'A' characters
     
     baud_period = 104.1667  # microseconds for 9600 baud
     
