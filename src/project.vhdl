@@ -13,9 +13,9 @@ entity tt_um_matrix is
         clk     : in  std_logic;                     -- system clock
         rst_n   : in  std_logic                      -- active-low reset
     );
-end tt_um_example;
+end tt_um_matrix;
 
-architecture Behavioral of tt_um_example is
+architecture Behavioral of tt_um_matrix is
 
     -- Input lines
     signal uart_data, uart_data_out, uart_clk, rx_clk_prev : std_logic;
