@@ -3,7 +3,7 @@
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles
+from cocotb.triggers import ClockCycles, Timer
 
 
 @cocotb.test()
@@ -31,6 +31,64 @@ async def test_project(dut):
 
     # Wait for one clock cycle to see the output values
     await ClockCycles(dut.clk, 1)
+
+
+
+
+    
+@cocotb.test()
+async def test_minimal_140_chars(dut):
+    """Minimal test for 140-character UART transmission"""
+    
+    # Start clock
+    clock = Clock(dut.clk, 10, unit="us")
+    cocotb.start_soon(clock.start())
+    
+    # Initialize
+    dut.tx_data.value = 1
+    await Timer(10, unit="us")
+    
+    # Create message
+    message = "A" * 140  # 140 'A' characters
+    
+    baud_period = 104.1667  # microseconds for 9600 baud
+    
+    print(f"Sending {len(message)} characters...")
+    
+    for i, char in enumerate(message):
+        byte_val = ord(char)
+        
+        # Start bit
+        dut.tx_data.value = 0
+        await Timer(baud_period, unit="us")
+
+        # Data bits
+        for bit in range(8):
+            dut.tx_data.value = (byte_val >> bit) & 1
+            await Timer(baud_period, unit="us")
+        
+        # Stop bit  
+        dut.tx_data.value = 1
+        await Timer(baud_period, unit="us")
+        
+        if (i + 1) % 35 == 0:
+            print(f"Sent {i + 1}/140")
+
+    assert dut.sreg.value == 0, "Shift register should be empty after transmission"
+
+    print("✓ Test completed!")
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
     # The following assersion is just an example of how to check the output values.
     # Change it to match the actual expected output of your module:
