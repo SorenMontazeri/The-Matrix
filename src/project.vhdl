@@ -24,18 +24,18 @@ architecture Behavioral of tt_um_matrix is
     signal shift_counter : unsigned(7 downto 0); -- Counts how many bits have been shifted in
     signal sreg_full : std_logic;                -- Set high when all 136 bits are received
     signal sreg : std_logic_vector(135 downto 0);
-    alias matrix1_row  : std_logic_vector(1 downto 0) is sreg(1 downto 0);
-    alias matrix1_col  : std_logic_vector(1 downto 0) is sreg(3 downto 2);
-    alias matrix2_row  : std_logic_vector(1 downto 0) is sreg(5 downto 4);
-    alias matrix2_col  : std_logic_vector(1 downto 0) is sreg(7 downto 6);
-    alias matrix1_data : std_logic_vector(63 downto 0) is sreg(71 downto 8);
-    alias matrix2_data : std_logic_vector(63 downto 0) is sreg(135 downto 72);
+    
+    -- Matrix dimensions
+    signal matrix1_rows : unsigned(1 downto 0);
+    signal matrix1_cols : unsigned(1 downto 0);
+    signal matrix2_rows : unsigned(1 downto 0);
+    signal matrix2_cols : unsigned(1 downto 0);
 
-    -- Output / result packing
+    -- Output / result
     signal output_reg : std_logic_vector(13 downto 0);
-    alias output_row : std_logic_vector(1 downto 0) is output_reg(1 downto 0);
-    alias output_col : std_logic_vector(1 downto 0) is output_reg(3 downto 2);
-    alias output_z   : std_logic_vector(9 downto 0) is output_reg(13 downto 4);
+    signal result_rows : unsigned(1 downto 0);
+    signal result_cols : unsigned(1 downto 0);
+    signal output_data : std_logic_vector(9 downto 0);
 
     -- Handshake to start TX after compute
     signal send_data       : std_logic;
@@ -56,7 +56,11 @@ architecture Behavioral of tt_um_matrix is
     -- Computation signals
     signal compute_start  : std_logic;
     signal compute_active : std_logic;
-    signal temp_product   : unsigned(7 downto 0);
+    signal temp_sum       : unsigned(9 downto 0);
+
+    -- State machine for computation
+    type state_type is (IDLE, COMPUTE, DONE);
+    signal state : state_type;
 
 begin
     -- Map pins
@@ -69,9 +73,18 @@ begin
     uio_out <= (others => '0');
     uio_oe  <= (others => '0');
 
+    -- Extract matrix dimensions from shift register
+    matrix1_rows <= unsigned(sreg(1 downto 0));
+    matrix1_cols <= unsigned(sreg(3 downto 2));
+    matrix2_rows <= unsigned(sreg(5 downto 4));
+    matrix2_cols <= unsigned(sreg(7 downto 6));
+
+    -- Result dimensions
+    result_rows <= matrix1_rows;
+    result_cols <= matrix2_cols;
+
     ----------------------------------------------------------------------
-    -- Serial shift process: sample one bit from uart_data on rising edge
-    -- of uart_clk (detected inside clk domain). After 136 bits, set sreg_full.
+    -- Serial shift process
     ----------------------------------------------------------------------
     process(clk)
     begin
@@ -88,17 +101,15 @@ begin
                 if (rx_clk_prev = '0' and uart_clk = '1') then
                     if sreg_full = '0' then
                         if shift_counter = 0 then
-                            -- Not started yet, look for start bit
+                            -- Look for start bit
                             if uart_data = '0' then
-                                -- Start bit detected, begin shifting from next clock
                                 shift_counter <= shift_counter + 1;
                             end if;
                         elsif shift_counter > 0 and shift_counter < 136 then
-                            -- Shift in 136 data bits (ignore start bit)
+                            -- Shift in data bits
                             sreg <= uart_data & sreg(135 downto 1);
                             shift_counter <= shift_counter + 1;
                         elsif shift_counter = 136 then
-                            -- When full, stop shifting and set flag
                             sreg_full <= '1';
                             shift_counter <= (others => '0');
                         end if;
@@ -108,81 +119,89 @@ begin
         end if;
     end process;
 
-    -- Start computation when shift register is full
     compute_start <= '1' when sreg_full = '1' and compute_done = '0' else '0';
 
     ----------------------------------------------------------------------
-    -- Compute process - Fixed version with proper state machine
+    -- Compute process - Fixed with proper state machine
     ----------------------------------------------------------------------
     process(clk)
         variable mat1_idx : integer;
         variable mat2_idx : integer;
-        variable temp_sum : unsigned(9 downto 0);
+        variable product : unsigned(7 downto 0);
     begin
         if rising_edge(clk) then
             if rst_n = '0' then
-                output_reg    <= (others => '0');
-                element_row   <= (others => '0');
-                element_col   <= (others => '0');
-                sum_k         <= (others => '0');
-                send_data     <= '0';
-                compute_done  <= '0';
-                compute_active <= '0';
-                temp_sum      := (others => '0');
+                output_reg   <= (others => '0');
+                output_data  <= (others => '0');
+                element_row  <= (others => '0');
+                element_col  <= (others => '0');
+                sum_k        <= (others => '0');
+                send_data    <= '0';
+                compute_done <= '0';
+                temp_sum     <= (others => '0');
+                state        <= IDLE;
             else
-                if compute_start = '1' and compute_active = '0' then
-                    -- Initialize computation
-                    output_reg(1 downto 0) <= matrix1_row;  -- Result rows = matrix1 rows
-                    output_reg(3 downto 2) <= matrix2_col;  -- Result cols = matrix2 cols
-                    element_row <= (others => '0');
-                    element_col <= (others => '0');
-                    sum_k       <= (others => '0');
-                    temp_sum    := (others => '0');
-                    compute_active <= '1';
-                    compute_done <= '0';
-                    send_data <= '0';
-                    
-                elsif compute_active = '1' then
-                    -- Matrix multiplication: C[i][j] = sum(A[i][k] * B[k][j])
-                    
-                    -- Calculate indices for matrix access
-                    mat1_idx := 8 + to_integer(element_row) * 16 + to_integer(sum_k) * 4;
-                    mat2_idx := 72 + to_integer(sum_k) * 16 + to_integer(element_col) * 4;
-                    
-                    -- Multiply 4-bit values and accumulate
-                    temp_product <= unsigned(sreg(mat1_idx + 3 downto mat1_idx)) * 
-                                   unsigned(sreg(mat2_idx + 3 downto mat2_idx));
-                    
-                    temp_sum := temp_sum + resize(temp_product, 10);
-                    
-                    -- Increment k
-                    if sum_k < unsigned(matrix1_col) then
-                        sum_k <= sum_k + 1;
-                    else
-                        -- k loop done, store result for this element
-                        output_z <= std_logic_vector(temp_sum);
-                        temp_sum := (others => '0');
-                        sum_k <= (others => '0');
-                        
-                        -- Increment column
-                        if element_col < unsigned(matrix2_col) then
-                            element_col <= element_col + 1;
-                        else
-                            -- Column loop done, increment row
+                case state is
+                    when IDLE =>
+                        if compute_start = '1' then
+                            -- Initialize computation
+                            output_reg(1 downto 0) <= std_logic_vector(matrix1_rows);
+                            output_reg(3 downto 2) <= std_logic_vector(matrix2_cols);
+                            element_row <= (others => '0');
                             element_col <= (others => '0');
-                            if element_row < unsigned(matrix1_row) then
-                                element_row <= element_row + 1;
+                            sum_k       <= (others => '0');
+                            temp_sum    <= (others => '0');
+                            send_data   <= '0';
+                            compute_done <= '0';
+                            state <= COMPUTE;
+                        end if;
+
+                    when COMPUTE =>
+                        -- Calculate matrix indices (fixed indexing)
+                        mat1_idx := 8 + to_integer(element_row) * 16 + to_integer(sum_k) * 4;
+                        mat2_idx := 72 + to_integer(sum_k) * 16 + to_integer(element_col) * 4;
+                        
+                        -- Ensure indices are within bounds
+                        if mat1_idx + 3 <= 135 and mat2_idx + 3 <= 135 then
+                            -- Multiply 4-bit values
+                            product := unsigned(sreg(mat1_idx + 3 downto mat1_idx)) * 
+                                      unsigned(sreg(mat2_idx + 3 downto mat2_idx));
+                            
+                            temp_sum <= temp_sum + resize(product, 10);
+                        end if;
+                        
+                        -- Increment k
+                        if sum_k < matrix1_cols then
+                            sum_k <= sum_k + 1;
+                        else
+                            -- k loop done, store result
+                            output_data <= std_logic_vector(temp_sum);
+                            temp_sum <= (others => '0');
+                            sum_k <= (others => '0');
+                            
+                            -- Increment column
+                            if element_col < matrix2_cols then
+                                element_col <= element_col + 1;
                             else
-                                -- All elements computed
-                                compute_active <= '0';
-                                compute_done <= '1';
-                                send_data <= '1';
+                                -- Column loop done, increment row
+                                element_col <= (others => '0');
+                                if element_row < matrix1_rows then
+                                    element_row <= element_row + 1;
+                                else
+                                    -- All elements computed
+                                    state <= DONE;
+                                end if;
                             end if;
                         end if;
-                    end if;
-                end if;
+
+                    when DONE =>
+                        compute_done <= '1';
+                        send_data <= '1';
+                        state <= IDLE;  -- Ready for next computation
+
+                end case;
                 
-                -- Clear send_data after transmission is done
+                -- Clear send_data after transmission starts
                 if send_data_done = '1' then
                     send_data <= '0';
                 end if;
@@ -190,9 +209,11 @@ begin
         end if;
     end process;
 
+    -- Pack output register
+    output_reg(13 downto 4) <= output_data;
+
     ----------------------------------------------------------------------
-    -- UART Transmitter using uart_clk as the bit clock.
-    -- Sends output_z(7 downto 0) as 8-N-1 when send_data='1'.
+    -- UART Transmitter
     ----------------------------------------------------------------------
     process(clk)
     begin
@@ -208,26 +229,22 @@ begin
                 tx_clk_prev <= uart_clk;
                 send_data_done <= '0';
                 
-                -- Start a transmission when requested and idle
+                -- Start transmission when requested and idle
                 if send_data = '1' and tx_busy = '0' then
-                    -- Frame: start(0), data LSB-first, stop(1)
-                    tx_shreg   <= '1' & output_z(7 downto 0) & '0';
+                    tx_shreg   <= '1' & output_data(7 downto 0) & '0';  -- stop, data, start
                     tx_bit_idx <= (others => '0');
                     tx_busy    <= '1';
-                    uart_data_out <= '0'; -- drive start bit immediately
+                    uart_data_out <= '0'; -- start bit
                 end if;
 
-                -- Shift one bit per rising edge of uart_clk
+                -- Shift on rising edge of uart_clk
                 if tx_busy = '1' then
                     if tx_clk_prev = '0' and uart_clk = '1' then
-                        if tx_bit_idx < 10 then
-                            uart_data_out <= tx_shreg(0);
-                            tx_shreg <= '1' & tx_shreg(9 downto 1);
+                        if tx_bit_idx < 9 then
+                            uart_data_out <= tx_shreg(to_integer(tx_bit_idx));
                             tx_bit_idx <= tx_bit_idx + 1;
-                        end if;
-                        
-                        if tx_bit_idx = 9 then
-                            -- sent 10 bits
+                        else
+                            -- Transmission complete
                             tx_busy <= '0';
                             send_data_done <= '1';
                             uart_data_out <= '1'; -- idle
