@@ -22,6 +22,7 @@ architecture Behavioral of tt_um_example is
 
     -- 136-bit shift register
     signal sreg : std_logic_vector(135 downto 0);
+    signal output : std_logic_vector(35 downto 0);
 
     -- Counts how many bits have been shifted in
     signal shift_counter : unsigned(7 downto 0);
@@ -29,11 +30,17 @@ architecture Behavioral of tt_um_example is
     -- Set high when all 136 bits are received
     signal sreg_full : std_logic;
 
+
+    signal z_counter : std_logic_vector(3 downto 0);
+    signal output_counter : std_logic_vector(7 downto 0);
+    alias z_row : std_logic_vector(1 downto 0) is  z_counter(3 downto 2);
+    alias z_col : std_logic_vector(1 downto 0) is z_counter(1 downto 0);
+
     -- Size
-    alias matrix1_col : std_logic_vector(1 downto 0) is sreg(135 downto 134);
-    alias matrix1_row : std_logic_vector(1 downto 0) is sreg(133 downto 132);
-    alias matrix2_col : std_logic_vector(1 downto 0) is sreg(131 downto 130);
-    alias matrix2_row : std_logic_vector(1 downto 0) is sreg(129 downto 128);
+    alias matrix1_row : std_logic_vector(1 downto 0) is sreg(135 downto 134);
+    alias matrix1_col : std_logic_vector(1 downto 0) is sreg(133 downto 132); -- row 
+    alias matrix2_row : std_logic_vector(1 downto 0) is sreg(131 downto 130);
+    alias matrix2_col : std_logic_vector(1 downto 0) is sreg(129 downto 128);
 
     -- Matrix 1
     alias matrix1_1   : std_logic_vector(3 downto 0) is sreg(127 downto 124);
@@ -71,6 +78,10 @@ architecture Behavioral of tt_um_example is
     alias matrix2_15  : std_logic_vector(3 downto 0) is sreg(7 downto 4);
     alias matrix2_16  : std_logic_vector(3 downto 0) is sreg(3 downto 0);
 
+    -- Output
+    alias output_row : std_logic_vector(1 downto 0) is output(35 downto 34);
+    alias output_col : std_logic_vector(1 downto 0) is output(33 downto 32);
+    alias output_z : std_logic_vector(1 downto 0) is output(31 downto 0);
 
     begin
 
@@ -83,8 +94,7 @@ architecture Behavioral of tt_um_example is
         -- Shifts in one bit from uart_data on each rising edge of uart_clk.
         -- When 136 bits have been shifted in, sreg_full is set to '1'.
         ----------------------------------------------------------------------
-        process(clk)
-        begin
+        process(clk) begin
             if rising_edge(clk) then
                 if rst_n = '0' then
                     sreg <= (others => '0');
@@ -110,4 +120,28 @@ architecture Behavioral of tt_um_example is
             end if;
         end process;
 
+        process(clk) begin
+            if rising_edge(clk) then
+                if rst_n = '0' then
+                    output <= (others => '0');
+                else
+                    if sreg_full = '1' then
+                        -- if matrix1_col /= matrix2_row then
+                        --     sreg_full <= '0';
+                        --     output <= (others => '0');
+
+                        --     sreg <= (others => '0');
+                        --     shift_counter <= (others => '0');
+                        --     rx_clk_prev <= '0';
+                        --     sreg_full <= '0';
+                        -- else 
+                        if (z_row < output_row and z_col < output_col) then
+                                
+                            
+                            
+                        end if;
+                    end if;
+                end if;
+            end if;
+        end process;
     end Behavioral;
