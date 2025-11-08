@@ -88,7 +88,7 @@ async def test_minimal_140_chars(dut):
         await Timer(baud_period, unit="us")
         dut.uart_clk.value = 0b1  # Idle state between bits
 
-        print(f"Sent char {bit}, bit {bit}: {message[bit]} \n sreg value: {dut.sreg.value}")
+        #print(f"Sent char {bit}, bit {bit}: {message[bit]} \n sreg value: {dut.sreg.value}")
     await Timer(baud_period, unit="us")
     dut.uart_clk.value = 0b1  # Idle state between bits
     await Timer(baud_period, unit="us")
@@ -102,6 +102,8 @@ async def test_minimal_140_chars(dut):
     print("Message sent, waiting for processing...")
     
     print(f"{sreg == message_reversed}")
+    
+    print("Asserting received message...")
     # Wait for processing
     assert ( sreg == message_reversed ) == True, "sreg does not match sent message"
     print("✓ Test completed!")
